@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VadeMecum AI</title>
+<style>
+  :root { --bg:#212121; --sidebar:#171717; --panel:#2f2f2f; --accent:#10a37f;
+          --text:#ececec; --muted:#9a9a9a; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: system-ui, 'Segoe UI', sans-serif; background:var(--bg);
+         color:var(--text); height:100vh; display:flex; overflow:hidden; }
+
+  /* ---------- Barra lateral ---------- */
+  #sidebar { width:260px; background:var(--sidebar); display:flex;
+             flex-direction:column; flex-shrink:0; transition:transform .25s; }
+  .sidebar-top { padding:16px; }
+  .brand { font-weight:700; font-size:16px; }
+  .brand-sub { font-size:11px; color:var(--muted); margin-top:2px; }
+  #btn-nova { width:100%; margin-top:14px; padding:10px; background:var(--accent);
+              color:#fff; border:none; border-radius:10px; font-size:14px; cursor:pointer; }
+  #btn-nova:hover { filter:brightness(1.1); }
+  #lista-conversas { flex:1; overflow-y:auto; padding:8px; }
+  .conv-item { display:flex; align-items:center; padding:10px 12px;
+               border-radius:10px; cursor:pointer; margin-bottom:2px; gap:8px; }
+  .conv-item:hover { background:#232323; }
+  .conv-item.ativo { background:#2a2a2a; }
+  .conv-titulo { font-size:13px; white-space:nowrap; overflow:hidden;
+                 text-overflow:ellipsis; flex:1; }
+  .conv-data { font-size:10px; color:var(--muted); flex-shrink:0; }
+  .conv-apagar { display:none; background:none; border:none; color:var(--muted);
+                 cursor:pointer; font-size:14px; padding:2px 4px; flex-shrink:0; }
+  .conv-item:hover .conv-apagar { display:inline; }
+  .conv-apagar:hover { color:#e56b6b; }
+  .conta { padding:14px 16px; border-top:1px solid #2a2a2a;
+           display:flex; align-items:center; gap:10px; }
+  .avatar { width:34px; height:34px; border-radius:50%; background:var(--accent);
+            color:#fff; display:flex; align-items:center; justify-content:center;
+            font-weight:700; flex-shrink:0; }
+  .conta-nome { font-size:13px; font-weight:600; }
+  .conta-sub { font-size:11px; color:var(--muted); }
+
+  /* ---------- Área principal ---------- */
+  #main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  #banner-off { display:none; background:#8a3b3b; color:#fff; text-align:center;
+                padding:8px; font-size:13px; }
+  #header { display:flex; align-items:center; gap:10px; padding:12px 20px;
+            border-bottom:1px solid #2a2a2a; }
+  #btn-menu { display:none; background:none; border:none; color:var(--text);
+              font-size:20px; cursor:pointer; }
+  #titulo-conversa { font-size:14px; font-weight:600; white-space:nowrap;
+                     overflow:hidden; text-overflow:ellipsis; }
+  #mensagens { flex:1; overflow-y:auto; padding:24px; display:flex;
+               flex-direction:column; gap:18px; }
+  .msg-usuario { align-self:flex-end; max-width:75%; background:var(--panel);
+                 padding:12px 16px; border-radius:14px; font-size:14px;
+                 line-height:1.5; white-space:pre-wrap; }
+  .msg-ia { align-self:flex-start; max-width:85%; display:flex; gap:10px; }
+  .msg-ia .avatar { width:28px; height:28px; font-size:13px; margin-top:2px; }
+  .msg-ia-corpo { font-size:14px; line-height:1.6; white-space:pre-wrap; }
+  .msg-ia-nome { font-weight:700; font-size:13px; margin-bottom:4px; }
+  .fontes { margin-top:10px; font-size:12px; }
+  .fontes summary { cursor:pointer; color:var(--muted); }
+  .fonte-item { padding:6px 0; border-bottom:1px solid #2a2a2a; }
+  .selo { display:inline-block; font-size:10px; padding:2px 8px;
+          border-radius:8px; margin-left:6px; }
+  .selo-ok { background:#1d4d3d; color:#7ee2b8; }
+  .selo-alerta { background:#5c4a1d; color:#f0d178; }
+  .sistema { align-self:center; color:#e56b6b; font-size:13px;
+             background:#3a2424; padding:8px 14px; border-radius:10px; }
+  .carregando { align-self:flex-start; color:var(--muted); font-size:13px;
+                display:flex; align-items:center; gap:8px; }
+  .pontos span { display:inline-block; width:6px; height:6px; background:var(--muted);
+                 border-radius:50%; margin-right:3px; animation:pulsa 1.2s infinite; }
+  .pontos span:nth-child(2) { animation-delay:.2s; }
+  .pontos span:nth-child(3) { animation-delay:.4s; }
+  @keyframes pulsa { 0%,60%,100% { opacity:.3; } 30% { opacity:1; } }
+
+  /* ---------- Estado vazio ---------- */
+  #vazio { flex:1; display:flex; flex-direction:column; align-items:center;
+           justify-content:center; gap:12px; text-align:center; }
+  #vazio h1 { font-size:26px; }
+  #vazio p { color:var(--muted); font-size:14px; }
+  .chips { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-top:8px; }
+  .chip { background:var(--panel); border:1px solid #3a3a3a; color:var(--text);
+          padding:10px 16px; border-radius:12px; font-size:13px; cursor:pointer; }
+  .chip:hover { border-color:var(--accent); }
+
+  /* ---------- Entrada ---------- */
+  #entrada { padding:16px 20px; border-top:1px solid #2a2a2a; }
+  .entrada-linha { display:flex; gap:10px; align-items:flex-end;
+                   background:var(--panel); border-radius:14px; padding:10px 12px; }
+  #campo { flex:1; background:none; border:none; color:var(--text); font-size:14px;
+           resize:none; outline:none; max-height:130px; font-family:inherit; line-height:1.4; }
+  #btn-enviar { background:var(--accent); border:none; color:#fff; width:36px;
+                height:36px; border-radius:10px; cursor:pointer; font-size:16px; flex-shrink:0; }
+  #btn-enviar:disabled { opacity:.4; cursor:default; }
+  .dica { font-size:11px; color:var(--muted); text-align:center; margin-top:8px; }
+
+  ::-webkit-scrollbar { width:8px; }
+  ::-webkit-scrollbar-thumb { background:#3a3a3a; border-radius:4px; }
+
+  @media (max-width:768px) {
+    #sidebar { position:fixed; z-index:10; height:100%; transform:translateX(-100%); }
+    #sidebar.aberta { transform:translateX(0); }
+    #btn-menu { display:block; }
+    .msg-usuario, .msg-ia { max-width:95%; }
+  }
+</style>
+</head>
+<body>
+  <aside id="sidebar">
+    <div class="sidebar-top">
+      <div class="brand">VadeMecum AI</div>
+      <div class="brand-sub">Pesquisa de legislação brasileira</div>
+      <button id="btn-nova">＋ Nova conversa</button>
+    </div>
+    <div id="lista-conversas"></div>
+    <div class="conta">
+      <div class="avatar">V</div>
+      <div>
+        <div class="conta-nome">Minha conta</div>
+        <div class="conta-sub">login em breve</div>
+      </div>
+    </div>
+  </aside>
+
+  <main id="main">
+    <div id="banner-off">Backend offline — execute <b>python app.py</b> e recarregue.</div>
+    <header id="header">
+      <button id="btn-menu">☰</button>
+      <div id="titulo-conversa">Nova conversa</div>
+    </header>
+
+    <div id="mensagens">
+      <div id="vazio">
+        <h1>VadeMecum AI</h1>
+        <p>Pergunte sobre a legislação brasileira em linguagem natural.</p>
+        <div class="chips">
+          <button class="chip">Qual lei fala sobre corrida ilegal de carros?</button>
+          <button class="chip">O que diz o art. 5º da Constituição?</button>
+          <button class="chip">O que mudou no Código Penal em 2025?</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="entrada">
+      <div class="entrada-linha">
+        <textarea id="campo" rows="1" placeholder="Pergunte sobre a legislação brasileira..."></textarea>
+        <button id="btn-enviar" title="Enviar">➤</button>
+      </div>
+      <div class="dica">Enter envia • Shift+Enter quebra linha</div>
+    </div>
+  </main>
+
+<script>
+const MESMA_ORIGEM = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+                     && location.port === '5000';
+const API = MESMA_ORIGEM ? '' : 'http://localhost:5000';
+
+let conversaId = null;
+let aguardando = false;
+
+const $ = (sel) => document.querySelector(sel);
+const area = $('#mensagens'), campo = $('#campo'), btnEnviar = $('#btn-enviar');
+
+const VAZIO_HTML = `<div id="vazio"><h1>VadeMecum AI</h1>
+  <p>Pergunte sobre a legislação brasileira em linguagem natural.</p>
+  <div class="chips">
+    <button class="chip">Qual lei fala sobre corrida ilegal de carros?</button>
+    <button class="chip">O que diz o art. 5º da Constituição?</button>
+    <button class="chip">O que mudou no Código Penal em 2025?</button>
+  </div></div>`;
+
+function escapeHtml(t) {
+  return String(t ?? '').replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function negrito(t) {
+  return escapeHtml(t).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+}
+function dataRelativa(iso) {
+  if (!iso) return '';
+  const d = new Date(String(iso).replace(' ', 'T'));
+  const min = (Date.now() - d.getTime()) / 60000;
+  if (min < 1) return 'agora';
+  if (min < 60) return `há ${Math.floor(min)} min`;
+  if (min < 1440) return `há ${Math.floor(min / 60)} h`;
+  if (min < 2880) return 'ontem';
+  return d.toLocaleDateString('pt-BR');
+}
+function rolarFim() { area.scrollTop = area.scrollHeight; }
+function limparMensagens() {
+  area.querySelectorAll('.msg-usuario,.msg-ia,.sistema,.carregando').forEach(e => e.remove());
+}
+function fecharGaveta() { $('#sidebar').classList.remove('aberta'); }
+
+async function carregarConversas() {
+  try {
+    const r = await fetch(`${API}/api/conversas`);
+    const lista = await r.json();
+    $('#banner-off').style.display = 'none';
+    const el = $('#lista-conversas');
+    el.innerHTML = '';
+    lista.forEach(c => {
+      const item = document.createElement('div');
+      item.className = 'conv-item' + (c.id === conversaId ? ' ativo' : '');
+      item.innerHTML =
+        `<span class="conv-titulo">${escapeHtml(c.titulo)}</span>` +
+        `<span class="conv-data">${escapeHtml(dataRelativa(c.atualizada_em))}</span>` +
+        `<button class="conv-apagar" title="Apagar">🗑</button>`;
+      item.addEventListener('click', (e) => {
+        if (e.target.classList.contains('conv-apagar')) return;
+        abrirConversa(c.id, c.titulo);
+      });
+      item.querySelector('.conv-apagar').addEventListener('click', () => apagarConversa(c.id));
+      el.appendChild(item);
+    });
+  } catch {
+    $('#banner-off').style.display = 'block';
+  }
+}
+
+async function abrirConversa(id, titulo) {
+  conversaId = id;
+  $('#titulo-conversa').textContent = titulo;
+  $('#vazio')?.remove();
+  limparMensagens();
+  try {
+    const r = await fetch(`${API}/api/conversas/${id}/mensagens`);
+    const msgs = await r.json();
+    msgs.forEach(m => m.papel === 'usuario'
+      ? addUsuario(m.conteudo) : addIA(m.conteudo, m.fontes));
+  } catch { $('#banner-off').style.display = 'block'; }
+  fecharGaveta();
+  carregarConversas();
+  rolarFim();
+}
+
+function addUsuario(texto) {
+  $('#vazio')?.remove();
+  const div = document.createElement('div');
+  div.className = 'msg-usuario';
+  div.textContent = texto;
+  area.appendChild(div);
+  rolarFim();
+}
+
+function addIA(texto, fontes) {
+  $('#vazio')?.remove();
+  const div = document.createElement('div');
+  div.className = 'msg-ia';
+  let fontesHtml = '';
+  if (fontes && fontes.length) {
+    const itens = fontes.map(f => {
+      const ok = f.texto_confirmado;
+      return `<div class="fonte-item">${escapeHtml(f.norma)} — ${escapeHtml(f.dispositivo)}` +
+        `<span class="selo ${ok ? 'selo-ok' : 'selo-alerta'}">` +
+        `${ok ? 'Texto confirmado na API oficial' : 'Não confirmado na fonte oficial'}</span></div>`;
+    }).join('');
+    fontesHtml = `<details class="fontes"><summary>Fontes consultadas (${fontes.length})</summary>${itens}</details>`;
+  }
+  div.innerHTML =
+    `<div class="avatar">V</div>` +
+    `<div><div class="msg-ia-nome">VadeMecum AI</div>` +
+    `<div class="msg-ia-corpo">${negrito(texto)}</div>${fontesHtml}</div>`;
+  area.appendChild(div);
+  rolarFim();
+}
+
+function addSistema(texto) {
+  const div = document.createElement('div');
+  div.className = 'sistema';
+  div.textContent = texto;
+  area.appendChild(div);
+  rolarFim();
+}
+
+function addCarregando() {
+  const div = document.createElement('div');
+  div.className = 'carregando';
+  div.id = 'carregando';
+  div.innerHTML =
+    `<span class="pontos"><span></span><span></span><span></span></span>` +
+    `Consultando o índice e a fonte oficial... a primeira resposta pode demorar (modelo local).`;
+  area.appendChild(div);
+  rolarFim();
+}
+
+async function enviar() {
+  const pergunta = campo.value.trim();
+  if (!pergunta || aguardando) return;
+  aguardando = true;
+  btnEnviar.disabled = true;
+  campo.value = '';
+  campo.style.height = 'auto';
+  addUsuario(pergunta);
+  addCarregando();
+  try {
+    const body = { pergunta };
+    if (conversaId) body.conversa_id = conversaId;
+    const r = await fetch(`${API}/api/perguntar`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const dados = await r.json();
+    $('#carregando')?.remove();
+    if (!r.ok) { addSistema(dados.erro || 'Erro ao processar.'); return; }
+    conversaId = dados.conversa_id;
+    $('#titulo-conversa').textContent =
+      pergunta.slice(0, 60) + (pergunta.length > 60 ? '...' : '');
+    addIA(dados.resposta, dados.fontes);
+  } catch {
+    $('#carregando')?.remove();
+    $('#banner-off').style.display = 'block';
+    addSistema('Não foi possível falar com o backend.');
+  } finally {
+    aguardando = false;
+    btnEnviar.disabled = false;
+    campo.focus();
+    carregarConversas();
+  }
+}
+
+async function apagarConversa(id) {
+  if (!confirm('Apagar esta conversa?')) return;
+  try { await fetch(`${API}/api/conversas/${id}`, { method: 'DELETE' }); } catch {}
+  if (id === conversaId) novaConversa();
+  carregarConversas();
+}
+
+function novaConversa() {
+  conversaId = null;
+  $('#titulo-conversa').textContent = 'Nova conversa';
+  limparMensagens();
+  if (!$('#vazio')) {
+    area.insertAdjacentHTML('afterbegin', VAZIO_HTML);
+    ligarChips();
+  }
+  fecharGaveta();
+  carregarConversas();
+}
+
+function ligarChips() {
+  document.querySelectorAll('.chip').forEach(ch =>
+    ch.addEventListener('click', () => { campo.value = ch.textContent; campo.focus(); }));
+}
+
+btnEnviar.addEventListener('click', enviar);
+$('#btn-nova').addEventListener('click', novaConversa);
+$('#btn-menu').addEventListener('click', () => $('#sidebar').classList.toggle('aberta'));
+campo.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); }
+});
+campo.addEventListener('input', () => {
+  campo.style.height = 'auto';
+  campo.style.height = Math.min(campo.scrollHeight, 130) + 'px';
+});
+ligarChips();
+carregarConversas();
+</script>
+</body>
+</html>
