@@ -86,6 +86,8 @@ class NormaMeta:
     apelido: str | None = None
     area_direito: str = "OUTRO"
     ementa: str | None = None
+    pagina_inicio: int | None = None
+    pagina_fim: int | None = None
 
 
 @dataclass
@@ -93,11 +95,17 @@ class BlocoNorma:
     meta: NormaMeta | None
     titulo_pdf: str
     linhas: list[str]
+    registros: list[tuple[str, str | None]] | None = None
+
+
+# Espacos unicode (NBSP, EN/EM SPACE etc.) que o PDF usa no lugar do espaco comum
+_ESPACOS_UNICODE_RE = re.compile("[\u00a0\u2000-\u200a\u202f\u205f\u3000]")
 
 
 def normalizar_linha(linha: str) -> str:
-    """Limpa espacos e hifens quebrados sem destruir acentuacao."""
+    """Limpa espacos (inclusive unicode) e hifens quebrados sem destruir acentuacao."""
     linha = linha.replace("\u00ad", "")
+    linha = _ESPACOS_UNICODE_RE.sub(" ", linha)
     linha = re.sub(r"[ \t]+", " ", linha)
     return linha.strip()
 
@@ -137,8 +145,8 @@ def extrair_cabecalho_norma(linha: str) -> tuple[str, str, int | None] | None:
     return tipo_normalizado(tipo), numero_normalizado(numero), ano
 
 
-def extrair_texto_pdf(caminho_pdf: Path) -> str:
-    """Extrai e normaliza texto, removendo linhas de pagina vazias."""
+def extrair_paginas_pdf(caminho_pdf: Path) -> list[str]:
+    """Extrai o texto normalizado de cada pagina, mantendo a ordem do PDF."""
     paginas = []
     with fitz.open(caminho_pdf) as documento:
         for pagina in documento:
@@ -147,7 +155,64 @@ def extrair_texto_pdf(caminho_pdf: Path) -> str:
                 linha for linha in (normalizar_linha(x) for x in texto.splitlines())
                 if linha
             ))
-    return "\n".join(paginas)
+    return paginas
+
+
+def extrair_texto_pdf(caminho_pdf: Path) -> str:
+    """Extrai e normaliza texto, removendo linhas de pagina vazias."""
+    return "\n".join(extrair_paginas_pdf(caminho_pdf))
+
+
+_FLAG_NEGRITO = 1 << 4  # bit "bold" retornado por PyMuPDF em span["flags"]
+
+
+def _rotulo_se_cabecalho_negrito(spans: list[dict]) -> str | None:
+    """Retorna o rotulo ('Art. 23.') se o inicio da linha for um cabecalho de
+    artigo em negrito, ou None caso contrario.
+
+    Nas edicoes comentadas do Vade Mecum, citacoes de outros artigos dentro
+    do texto (ex.: "art. 173, º 1o, III") usam a fonte normal, enquanto o
+    cabecalho real do artigo (ex.: "Art. 23.") e impresso em negrito. Usar a
+    formatacao em vez de apenas o texto evita que essas citacoes sejam
+    confundidas com o inicio de um novo artigo.
+    """
+    prefixo: list[str] = []
+    for span in spans:
+        negrito = bool(span.get("flags", 0) & _FLAG_NEGRITO) or "Bold" in span.get("font", "")
+        if not negrito:
+            break
+        prefixo.append(span["text"])
+    if not prefixo:
+        return None
+    texto_prefixo = normalizar_linha("".join(prefixo))
+    encontrada = ARTIGO_RE.match(texto_prefixo)
+    if not encontrada:
+        return None
+    rotulo = re.sub(r"\s+", " ", encontrada.group(1))
+    return rotulo[:1].upper() + rotulo[1:]
+
+
+def extrair_registros_paginas(caminho_pdf: Path) -> list[list[tuple[str, str | None]]]:
+    """Extrai, por pagina, pares (texto_da_linha, rotulo_se_for_cabecalho).
+
+    O rotulo so e preenchido quando a linha comeca com um cabecalho de
+    artigo em negrito (ver _rotulo_se_cabecalho_negrito).
+    """
+    paginas: list[list[tuple[str, str | None]]] = []
+    with fitz.open(caminho_pdf) as documento:
+        for pagina in documento:
+            linhas_pagina: list[tuple[str, str | None]] = []
+            dados = pagina.get_text("dict")
+            for bloco in dados.get("blocks", []):
+                for linha in bloco.get("lines", []):
+                    spans = linha.get("spans", [])
+                    texto_linha = normalizar_linha("".join(s["text"] for s in spans))
+                    if not texto_linha:
+                        continue
+                    rotulo = _rotulo_se_cabecalho_negrito(spans)
+                    linhas_pagina.append((texto_linha, rotulo))
+            paginas.append(linhas_pagina)
+    return paginas
 
 
 def linha_e_artigo(linha: str) -> bool:
@@ -155,7 +220,9 @@ def linha_e_artigo(linha: str) -> bool:
 
 
 def separar_artigos(linhas: Iterable[str]) -> list[tuple[str, str]]:
-    """Separa uma norma em artigos, preservando o texto de cada artigo."""
+    """Separa uma norma em artigos a partir de texto simples (sem informacao
+    de negrito), usado apenas no modo de deteccao automatica de cabecalhos
+    de norma (sem manifesto com paginas)."""
     artigos: list[tuple[str, str]] = []
     rotulo_atual: str | None = None
     acumulado: list[str] = []
@@ -170,8 +237,7 @@ def separar_artigos(linhas: Iterable[str]) -> list[tuple[str, str]]:
                 texto = "\n".join(acumulado).strip()
                 if texto:
                     artigos.append((rotulo_atual, texto))
-            rotulo = encontrada.group(1)
-            rotulo = re.sub(r"\s+", " ", rotulo)
+            rotulo = re.sub(r"\s+", " ", encontrada.group(1))
             rotulo_atual = rotulo[:1].upper() + rotulo[1:]
             acumulado = [linha]
         elif rotulo_atual is not None:
@@ -181,6 +247,32 @@ def separar_artigos(linhas: Iterable[str]) -> list[tuple[str, str]]:
         texto = "\n".join(acumulado).strip()
         if texto:
             artigos.append((rotulo_atual, texto))
+    return artigos
+
+
+def separar_artigos_registros(registros: Iterable[tuple[str, str | None]]) -> list[tuple[str, str]]:
+    """Separa artigos usando cabecalhos ja identificados via negrito
+    (ver extrair_registros_paginas). Mais confiavel que separar_artigos
+    porque nao depende de heuristicas sobre o texto puro."""
+    artigos: list[tuple[str, str]] = []
+    rotulo_atual: str | None = None
+    acumulado: list[str] = []
+
+    for texto_linha, rotulo in registros:
+        if rotulo:
+            if rotulo_atual is not None:
+                corpo = "\n".join(acumulado).strip()
+                if corpo:
+                    artigos.append((rotulo_atual, corpo))
+            rotulo_atual = rotulo
+            acumulado = [texto_linha]
+        elif rotulo_atual is not None:
+            acumulado.append(texto_linha)
+
+    if rotulo_atual is not None:
+        corpo = "\n".join(acumulado).strip()
+        if corpo:
+            artigos.append((rotulo_atual, corpo))
     return artigos
 
 
@@ -231,6 +323,8 @@ def carregar_metadados(caminho: Path | None, argumentos: argparse.Namespace) -> 
             apelido=item.get("apelido"),
             area_direito=sem_acento(item.get("area_direito", "OUTRO")).upper(),
             ementa=item.get("ementa"),
+            pagina_inicio=item.get("pagina_inicio"),
+            pagina_fim=item.get("pagina_fim"),
         ) for item in dados]
 
     if not argumentos.id_senado:
@@ -271,11 +365,15 @@ def inserir_bloco(conn: sqlite3.Connection, bloco: BlocoNorma) -> tuple[int, int
             "Inclua-a no manifesto normas.json."
         )
     validar_meta(bloco.meta)
-    artigos = separar_artigos(bloco.linhas)
+    artigos = (separar_artigos_registros(bloco.registros) if bloco.registros is not None
+               else separar_artigos(bloco.linhas))
     if not artigos:
         raise ValueError(f"Nenhum artigo encontrado na norma: {bloco.titulo_pdf}")
 
     meta = bloco.meta
+    # ids negativos sao sinteticos (sem id_senado real confirmado): nao gerar URL do Senado
+    url_fonte = (f"https://legis.senado.leg.br/norma/{meta.id_senado}"
+                 if meta.id_senado > 0 else None)
     conn.execute("""
         INSERT INTO normas (
             id_senado, tipo_norma, numero, ano, ementa, apelido,
@@ -289,8 +387,7 @@ def inserir_bloco(conn: sqlite3.Connection, bloco: BlocoNorma) -> tuple[int, int
             data_indexacao = datetime('now', 'localtime')
     """, (
         meta.id_senado, meta.tipo_norma, meta.numero, meta.ano, meta.ementa,
-        meta.apelido, meta.area_direito,
-        f"https://legis.senado.leg.br/norma/{meta.id_senado}",
+        meta.apelido, meta.area_direito, url_fonte,
     ))
     id_norma = conn.execute(
         "SELECT id FROM normas WHERE id_senado = ?", (meta.id_senado,)
@@ -312,6 +409,30 @@ def inserir_bloco(conn: sqlite3.Connection, bloco: BlocoNorma) -> tuple[int, int
     return len(artigos), inseridos
 
 
+def blocos_por_pagina(registros_paginas: list[list[tuple[str, str | None]]],
+                       metadados: list[NormaMeta]) -> list[BlocoNorma]:
+    """Monta um bloco por norma usando as paginas informadas no manifesto
+    (tipicamente extraidas do sumario/TOC do PDF, mais confiavel que a
+    deteccao de cabecalhos no texto corrido). Usa os registros com
+    deteccao de negrito para separar artigos corretamente."""
+    blocos = []
+    total_paginas = len(registros_paginas)
+    for meta in metadados:
+        inicio = (meta.pagina_inicio or 1) - 1
+        # pagina_fim e o 1o pagina da PROXIMA norma (exclusiva); subtrai 1 para
+        # nao incluir essa pagina no slice 0-based.
+        fim = (meta.pagina_fim - 1) if meta.pagina_fim else total_paginas
+        if inicio < 0 or fim > total_paginas or inicio >= fim:
+            raise ValueError(
+                f"Intervalo de paginas invalido para {meta.apelido}: "
+                f"{meta.pagina_inicio}-{meta.pagina_fim} (PDF tem {total_paginas} paginas)"
+            )
+        registros = [r for pagina in registros_paginas[inicio:fim] for r in pagina]
+        blocos.append(BlocoNorma(
+            meta, meta.apelido or f"{meta.tipo_norma} {meta.numero}", [], registros))
+    return blocos
+
+
 def executar(args: argparse.Namespace) -> int:
     pdf = Path(args.pdf)
     if not pdf.is_file():
@@ -324,11 +445,19 @@ def executar(args: argparse.Namespace) -> int:
 
     try:
         metadados = carregar_metadados(manifesto, args)
-        texto = extrair_texto_pdf(pdf)
-        if not texto.strip():
-            print("ERRO: nenhum texto extraido. O PDF pode ser digitalizado; rode OCR antes.")
-            return 2
-        blocos = localizar_blocos(texto, metadados)
+        usa_paginas = metadados and all(m.pagina_inicio for m in metadados)
+        if usa_paginas:
+            registros_paginas = extrair_registros_paginas(pdf)
+            if not any(registros_paginas):
+                print("ERRO: nenhum texto extraido. O PDF pode ser digitalizado; rode OCR antes.")
+                return 2
+            blocos = blocos_por_pagina(registros_paginas, metadados)
+        else:
+            texto = extrair_texto_pdf(pdf)
+            if not texto.strip():
+                print("ERRO: nenhum texto extraido. O PDF pode ser digitalizado; rode OCR antes.")
+                return 2
+            blocos = localizar_blocos(texto, metadados)
         if not blocos:
             print("ERRO: nenhuma norma encontrada no PDF.")
             return 2
