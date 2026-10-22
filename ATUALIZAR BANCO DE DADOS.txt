@@ -1,0 +1,21 @@
+ATUALIZAR BANCO DE DADOS: 
+
+Primeiro baixe as planilhas no GitHub que estão em CSV
+
+Dentro do código "importar_palavras_chave_vade_mecum.py" logo abaixo das bibliotecas vc vai ver as seguintes linhas 
+
+BASE = Path(__file__).resolve().parent
+DB_PATH = BASE / "vademecum.db"
+CSV_PATH = BASE / "Importar_palavras.csv"
+
+Nessa terceira é preciso que você coloque o nome do arquivo csv entre "", CSV_PATH = BASE / "AQUI" Isso precisa ser feito manualmente pois são dois arquivos
+ 
+
+Depois rode o código no terminal: python importar_palavras_chave_vade_mecum.py
+
+Em seguida rode: python atualizar.py --normas 
+
+E por ultimo:  python gerar_embeddings.py 
+
+Com isso o banco estará atualizado 
+
