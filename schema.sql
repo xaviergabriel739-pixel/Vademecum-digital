@@ -1,4 +1,4 @@
--- schema.sql — VadeMecum AI
+-- schema.sql — VadeMecum AI (v2 corrigido)
 -- SQLite 3 com FTS5. Execute antes do seed.py.
 
 PRAGMA foreign_keys = ON;
@@ -11,16 +11,18 @@ CREATE TABLE normas (
     id_senado INTEGER UNIQUE NOT NULL,
     tipo_norma TEXT NOT NULL CHECK (tipo_norma IN (
         'LEI', 'DECRETO-LEI', 'DECRETO', 'CONSTITUICAO',
-        'MEDIDA PROVISORIA', 'OUTRO')),
+        'MEDIDA PROVISORIA', 'LEI COMPLEMENTAR', 'OUTRO')),
     numero TEXT NOT NULL,
     ano INTEGER NOT NULL,
     ementa TEXT,
     apelido TEXT,
-    area_direito TEXT NOT NULL CHECK (area_direito IN (
-        'CONSTITUCIONAL', 'PENAL', 'CIVIL', 'PROCESSUAL PENAL',
-        'PROCESSUAL CIVIL', 'ADMINISTRATIVO', 'TRIBUTARIO',
-        'TRABALHISTA', 'CONSUMIDOR', 'TRANSITO', 'AMBIENTAL',
-        'ELEITORAL', 'MILITAR', 'INTERNACIONAL', 'EMPRESARIAL', 'OUTRO')),
+    area_direito TEXT NOT NULL DEFAULT 'OUTRO' CHECK (area_direito IN (
+        'CONSTITUCIONAL', 'CIVIL', 'PENAL', 'TRABALHISTA',
+        'ELEITORAL', 'TRIBUTARIO', 'TRANSITO', 'CONSUMIDOR',
+        'AMBIENTAL', 'EMPRESARIAL', 'ADMINISTRATIVO',
+        'PROCESSUAL CIVIL', 'PROCESSUAL PENAL',
+        'PREVIDENCIARIO', 'AGRARIO', 'FINANCEIRO',
+        'ECONOMICO', 'TECNOLOGIA', 'OUTRO')),
     vade_mecum INTEGER NOT NULL DEFAULT 0 CHECK (vade_mecum IN (0, 1)),
     data_assinatura TEXT,
     situacao TEXT NOT NULL CHECK (situacao IN ('VIGENTE', 'ALTERADA', 'REVOGADA')),
@@ -31,7 +33,7 @@ CREATE TABLE normas (
 );
 
 -- ==========================================================
--- DISPOSITIVOS (artigos, parágrafos, incisos)
+-- DISPOSITIVOS
 -- ==========================================================
 CREATE TABLE dispositivos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,7 +49,7 @@ CREATE TABLE dispositivos (
 );
 
 -- ==========================================================
--- PALAVRAS-CHAVE (N:N com dispositivos)
+-- PALAVRAS-CHAVE
 -- ==========================================================
 CREATE TABLE palavras_chave (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -61,7 +63,7 @@ CREATE TABLE dispositivos_palavras_chave (
 );
 
 -- ==========================================================
--- ALTERAÇÕES LEGISLATIVAS
+-- ALTERACOES LEGISLATIVAS
 -- ==========================================================
 CREATE TABLE alteracoes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,7 +76,7 @@ CREATE TABLE alteracoes (
 );
 
 -- ==========================================================
--- HISTÓRICO DO CHAT
+-- HISTORICO DO CHAT
 -- ==========================================================
 CREATE TABLE conversas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,31 +95,35 @@ CREATE TABLE mensagens (
 );
 
 -- ==========================================================
--- BUSCA DE TEXTO COMPLETO (FTS5, conteúdo externo)
+-- BUSCA DE TEXTO COMPLETO (FTS5) — agora com rotulo
 -- ==========================================================
 CREATE VIRTUAL TABLE dispositivos_fts USING fts5(
+    rotulo,
     texto,
     content='dispositivos',
-    content_rowid='id'
+    content_rowid='id',
+    tokenize="unicode61 remove_diacritics 2"
 );
 
 CREATE TRIGGER dispositivos_ai AFTER INSERT ON dispositivos BEGIN
-    INSERT INTO dispositivos_fts(rowid, texto) VALUES (new.id, new.texto);
+    INSERT INTO dispositivos_fts(rowid, rotulo, texto)
+    VALUES (new.id, new.rotulo, new.texto);
 END;
 
 CREATE TRIGGER dispositivos_ad AFTER DELETE ON dispositivos BEGIN
-    INSERT INTO dispositivos_fts(dispositivos_fts, rowid, texto)
-    VALUES ('delete', old.id, old.texto);
+    INSERT INTO dispositivos_fts(dispositivos_fts, rowid, rotulo, texto)
+    VALUES ('delete', old.id, old.rotulo, old.texto);
 END;
 
 CREATE TRIGGER dispositivos_au AFTER UPDATE ON dispositivos BEGIN
-    INSERT INTO dispositivos_fts(dispositivos_fts, rowid, texto)
-    VALUES ('delete', old.id, old.texto);
-    INSERT INTO dispositivos_fts(rowid, texto) VALUES (new.id, new.texto);
+    INSERT INTO dispositivos_fts(dispositivos_fts, rowid, rotulo, texto)
+    VALUES ('delete', old.id, old.rotulo, old.texto);
+    INSERT INTO dispositivos_fts(rowid, rotulo, texto)
+    VALUES (new.id, new.rotulo, new.texto);
 END;
 
 -- ==========================================================
--- ÍNDICES
+-- INDICES
 -- ==========================================================
 CREATE INDEX idx_normas_tipo_numero_ano ON normas(tipo_norma, numero, ano);
 CREATE INDEX idx_normas_area ON normas(area_direito);

@@ -191,18 +191,36 @@ def _formatar_norma(tipo, numero, ano, apelido):
     base = nomes.get(tipo, f"{tipo} nº {numero}/{ano}")
     return f"{base} ({apelido})" if apelido else base
 
+def _normalizar_texto(texto):
+    """Restaura quebras de linha perdidas na extração (texto em linha única)."""
+    texto = texto.replace("\r\n", "\n").replace("\r", "\n")
+    texto = re.sub(r"\s*(Art\.\s*\d+[ºo°]?(?:-[A-Z])?)", r"\n\1", texto)
+    texto = re.sub(r"\s*(§\s*\d+[ºo°]?)", r"\n\1", texto)
+    return texto
+
 
 def _extrair_artigo(texto_norma, rotulo):
-    """Localiza o texto atual de um artigo dentro do texto integral da norma."""
-    num = rotulo.replace("Art.", "").replace("Art", "").strip()
+    texto_norma = _normalizar_texto(texto_norma)   # ← adicione esta linha
+    # ... resto da sua versão tolerante permanece igual
+
+def _extrair_artigo(texto_norma, rotulo):
+    """Localiza o texto atual de um artigo, tolerando variações de formato."""
+    texto_norma = texto_norma.replace("\r\n", "\n").replace("\r", "\n")
+    num = re.sub(r"(?i)^\s*art\.?\s*", "", rotulo).strip()
+    # 1) padrão rígido: artigo no início de uma linha
     m = re.search(rf"(?m)^Art\.\s*{re.escape(num)}(?![0-9\-])", texto_norma)
+    # 2) tolerante: artigo em qualquer posição (texto sem quebras de linha)
+    if not m:
+        m = re.search(rf"(?i)art\.?\s*{re.escape(num)}(?![0-9\-])", texto_norma)
     if not m:
         return None
     inicio = m.start()
-    m_prox = re.search(r"(?m)^Art\.\s", texto_norma[inicio + 1:])
+    # fim = próximo artigo (início de linha) ou a próxima menção "Art. N"
+    m_prox = re.search(r"(?m)^Art\.\s*\d", texto_norma[inicio + 1:])
+    if not m_prox:
+        m_prox = re.search(r"Art\.\s*\d", texto_norma[inicio + 1:])
     fim = inicio + 1 + m_prox.start() if m_prox else len(texto_norma)
     return texto_norma[inicio:fim].strip()
-
 
 def montar_resultados(pergunta, top_n=TOP_N):
     """Pipeline completo: busca híbrida + texto atual da API.

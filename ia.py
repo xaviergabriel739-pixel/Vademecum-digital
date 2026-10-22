@@ -111,8 +111,7 @@ def responder(pergunta, resultados, historico=None):
             json={
                 "model": MODELO,
                 "messages": mensagens,
-                "temperature": TEMPERATURA,
-                "max_tokens": MAX_TOKENS,
+                "max_completion_tokens": MAX_TOKENS,
                 "reasoning_effort": RAZONAMENTO,
             },
             timeout=TIMEOUT,
@@ -121,24 +120,29 @@ def responder(pergunta, resultados, historico=None):
         dados = resp.json()
         return dados["choices"][0]["message"]["content"].strip()
 
+   
     except requests.exceptions.HTTPError as e:
         codigo = e.response.status_code
-        if codigo == 401:
-            return ("[ERRO] Chave de API inválida (401). Confira a variável "
-                    "IA_API_KEY e se a chave está ativa na OpenAI.")
-        if codigo == 429:
-            return ("[ERRO] Limite de uso atingido (429). Aguarde alguns "
-                    "instantes ou verifique o crédito da conta.")
-        if codigo == 404:
-            return (f"[ERRO] Modelo '{MODELO}' não encontrado (404). Confira "
-                    "o nome do modelo em developers.openai.com/api/docs/models.")
-        return f"[ERRO] A API retornou erro {codigo}."
-    except requests.exceptions.ConnectionError:
-        return "[ERRO] Sem conexão com a API. Verifique a internet."
-    except requests.exceptions.Timeout:
-        return "[ERRO] A API demorou demais para responder. Tente novamente."
-    except (KeyError, json.JSONDecodeError):
-        return "[ERRO] Resposta inesperada da API. Verifique a documentação do modelo."
+
+        try:
+            detalhes = e.response.json()
+            erro_api = detalhes.get("error", {})
+            mensagem = erro_api.get("message", str(detalhes))
+            parametro = erro_api.get("param")
+            codigo_erro = erro_api.get("code")
+        except (ValueError, AttributeError):
+            mensagem = e.response.text
+            parametro = None
+            codigo_erro = None
+
+        # Diagnóstico no terminal. Não imprime a chave da API.
+        print(f"[OpenAI] HTTP {codigo}")
+        print(f"[OpenAI] Mensagem: {mensagem}")
+        print(f"[OpenAI] Parâmetro: {parametro}")
+        print(f"[OpenAI] Código: {codigo_erro}")
+
+        return f"[ERRO] OpenAI HTTP {codigo}: {mensagem}"
+
 
 
 # ------------------------------------------------------------
